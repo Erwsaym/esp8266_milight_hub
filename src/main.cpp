@@ -19,6 +19,7 @@
 #include <MiLightDiscoveryServer.h>
 #include <MiLightClient.h>
 #include <BulbStateUpdater.h>
+#include <ImpulsionUpdater.h>
 #include <RadioSwitchboard.h>
 #include <PacketSender.h>
 #include <HomeAssistantDiscoveryClient.h>
@@ -52,6 +53,7 @@ uint8_t currentRadioType = 0;
 // For tracking and managing group state
 GroupStateStore* stateStore = NULL;
 BulbStateUpdater* bulbStateUpdater = NULL;
+ImpulsionUpdater* impulsionUpdater = NULL;
 TransitionController transitions;
 
 std::vector<std::shared_ptr<MiLightUdpServer>> udpServers;
@@ -202,9 +204,11 @@ void applySettings() {
   if (mqttClient) {
     delete mqttClient;
     delete bulbStateUpdater;
+    delete impulsionUpdater;
 
     mqttClient = NULL;
     bulbStateUpdater = NULL;
+    impulsionUpdater = NULL;
   }
   if (stateStore) {
     delete stateStore;
@@ -242,11 +246,13 @@ void applySettings() {
   if (settings.mqttServer().length() > 0) {
     mqttClient = new MqttClient(settings, milightClient);
     mqttClient->begin();
+    impulsionUpdater = new ImpulsionUpdater(settings, *mqttClient);
     mqttClient->onConnect([]() {
       if (settings.homeAssistantDiscoveryPrefix.length() > 0) {
         HomeAssistantDiscoveryClient discoveryClient(settings, mqttClient);
         discoveryClient.sendDiscoverableDevices(settings.groupIdAliases);
         discoveryClient.removeOldDevices(settings.deletedGroupIdAliases);
+        impulsionUpdater->sendDiscoverableDevices();
 
         settings.deletedGroupIdAliases.clear();
       }
@@ -484,6 +490,7 @@ void loop() {
     if (mqttClient) {
       mqttClient->handleClient();
       bulbStateUpdater->loop();
+      impulsionUpdater->loop();
     }
 
     for (auto & udpServer : udpServers) {
